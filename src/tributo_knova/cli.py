@@ -25,9 +25,7 @@ def _configure_logging(level: str | None) -> None:
         or "INFO"
     ).upper()
     if selected not in _LOG_LEVELS:
-        raise ValueError(
-            "log level must be one of: " + ", ".join(_LOG_LEVELS)
-        )
+        raise ValueError("log level must be one of: " + ", ".join(_LOG_LEVELS))
     logging.basicConfig(
         level=getattr(logging, selected),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",

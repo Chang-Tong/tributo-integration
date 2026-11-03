@@ -9,3 +9,6 @@ dist
 docs
 tests
 scripts
+!dist/
+dist/*
+!dist/tributo_knova-0.3.0-py3-none-any.whl

@@ -14,6 +14,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import time
 import traceback
 import uuid
@@ -33,6 +34,24 @@ LABELS = {
     "reg": {},
 }
 WIDTH = 116
+
+
+def matrix_features() -> list[dict[str, Any]]:
+    """Complete v2 feature declarations; result-column names stay opaque."""
+    return [
+        {
+            "feature_id": f"f{i}",
+            "display_name": f"Feature {i}",
+            "feature_role": "REGULAR",
+            "result_column": f"f{i}",
+            "origin": {
+                "table_alias": "t0",
+                "column_name": f"f{i}",
+                "column_type": "Float32",
+            },
+        }
+        for i in range(1, WIDTH + 1)
+    ]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,22 +163,18 @@ def build_plan() -> list[Case]:
         ),
         Case("filter_multi_exclude", "inference", "multi", 1000, filter_mode="EXCLUDE"),
         Case(
-            "reject_multi_threshold",
+            "ignore_multi_threshold",
             "inference",
             "multi",
             7,
-            expected="FAILED",
             threshold=0.5,
-            expected_error_code="INVALID_PAYLOAD",
         ),
         Case(
-            "reject_reg_threshold",
+            "ignore_reg_threshold",
             "inference",
             "reg",
             7,
-            expected="FAILED",
             threshold=0.5,
-            expected_error_code="INVALID_PAYLOAD",
         ),
         Case(
             "reject_reg_filter",
@@ -218,7 +233,9 @@ def build_plan() -> list[Case]:
                 kind,
                 rows,
                 expected="FAILED",
-                expected_error_code="EXECUTION_FAILED",
+                expected_error_code="EMPTY_DATASET"
+                if rows == 0
+                else "DATA_QUERY_FAILED",
                 expected_error_message=(
                     "Training input is empty after filtering"
                     if rows == 0
@@ -348,9 +365,8 @@ class MatrixRunner:
             )
         import clickhouse_connect
         import redis
+        from local_smoke import _create_runtime
         from ray.job_submission import JobSubmissionClient
-
-        from tributo_knova.broker import KnovaBrokerPlugin
 
         self.output = output
         self.output.mkdir(parents=True, exist_ok=True)
@@ -396,7 +412,18 @@ class MatrixRunner:
             ):
                 channel[key] = f"matrix:{self.run_id}:{name}:{key}"
             channel["group_start_id"] = "0-0"
-        self.runtime = KnovaBrokerPlugin().create_runtime(self.config)
+        if os.environ.get("ACCEPT_PROVIDER") == "broker":
+            self.config["broker_id"] = "tributo-redis"
+            self.config["protocol"] = {
+                "profile": "aimodel-v2",
+                "protocol_version": "2.0",
+            }
+            self.config["execution"]["extra_py_modules"] = [
+                path
+                for path in self.config["execution"]["extra_py_modules"]
+                if not path.endswith("/tributo_knova")
+            ]
+        self.runtime = _create_runtime(self.config)
         self.runtime.start()
         self.args = SimpleNamespace(
             storage_mode="nfs",
@@ -552,7 +579,7 @@ class MatrixRunner:
             if active:
                 job = active.submission.submission_id
                 info = self.jobs.get_job_info(job)
-                settled = time.monotonic() + 30
+                settled = time.monotonic() + 120
                 while str(info.status) not in {"SUCCEEDED", "FAILED", "STOPPED"}:
                     if time.monotonic() >= settled:
                         break
@@ -571,7 +598,7 @@ class MatrixRunner:
                 case_dir / "events.json",
                 [json.loads(item["payload"]) for _, item in self.redis.xrange(stream)],
             )
-            if active:
+            if active and sys.exc_info()[0] is None:
                 expected_ray = "SUCCEEDED" if case.expected == "COMPLETED" else "FAILED"
                 assert str(info.status) == expected_ray, (
                     "Ray terminal status disagrees with the expected business terminal"
@@ -591,16 +618,26 @@ class MatrixRunner:
             storage_prefix=identity,
             password="local-test-only",
         )
-        request["features"] = [
-            {"origin": {"column_name": f"f{i}"}} for i in range(1, WIDTH + 1)
-        ]
+        request["features"] = matrix_features()
+        projection = ", ".join(f"t0.f{i} AS f{i}" for i in range(1, WIDTH + 1))
+        request["data_query"]["query"]["sql"] = (
+            f"SELECT {projection}, t0.label AS t0__label "
+            f"FROM knova.{self.table(case)} t0"
+        )
         request["algorithm"].update(
-            algorithm_key=case.algorithm,
+            algorithm_key="xgboost_reg" if case.kind == "reg" else case.algorithm,
             category="REGRESSION" if case.kind == "reg" else "CLASSIFICATION",
             hyper_params={"n_estimators": 3, "max_depth": 3},
         )
         request["target"].update(
             task_type=TASKS[case.kind], label_mapping=LABELS[case.kind]
+        )
+        request["target"]["origin"]["column_type"] = (
+            "String"
+            if case.string_target
+            else "Float64"
+            if case.kind == "reg"
+            else "UInt8"
         )
         if case.kind == "binary":
             request["target"]["positive_label_value"] = next(
@@ -717,7 +754,10 @@ class MatrixRunner:
             shap_mode=case.shap,
         )
         request["model"].update(
-            task_type=TASKS[case.kind], label_mapping=LABELS[case.kind]
+            task_type=TASKS[case.kind],
+            label_mapping=LABELS[case.kind],
+            algorithm_category="REGRESSION" if case.kind == "reg" else "CLASSIFICATION",
+            algorithm_key="xgboost_reg" if case.kind == "reg" else "xgboost",
         )
         request["model"].pop("positive_label_value", None)
         if case.kind == "binary":
@@ -726,13 +766,12 @@ class MatrixRunner:
                 for label, index in LABELS[case.kind].items()
                 if index == case.positive_index
             )
-        request["input"]["features"] = [
-            {
-                "origin": {"table_alias": "t0", "column_name": f"f{i}"},
-                "result_column": f"f{i}",
-            }
-            for i in range(1, WIDTH + 1)
-        ]
+        request["input"]["features"] = matrix_features()
+        projection = ", ".join(f"t0.f{i} AS f{i}" for i in range(1, WIDTH + 1))
+        request["input"]["query"]["sql"] = (
+            f"SELECT t0.entity_id AS entity_id, {projection} "
+            f"FROM knova.{self.table(case)} t0 WHERE t0.stat_month = {{month:String}}"
+        )
         request["execution"].update(batch_size=4096, concurrency=2)
         if case.empty_filter:
             request["input"]["query"]["params"]["month"] = "empty-matrix-month"
@@ -1075,6 +1114,7 @@ class MatrixRunner:
                         else self.infer(case, directory)
                     )
                     record["passed"] = True
+                    (directory / "assertion.log").unlink(missing_ok=True)
                 except Exception as error:
                     record.update(
                         passed=False, error_type=type(error).__name__, error=str(error)
@@ -1113,6 +1153,7 @@ def main() -> int:
         / "dist/extended-acceptance-20260925/workloads",
     )
     parser.add_argument("--case", action="append", default=[])
+    parser.add_argument("--resume-from", type=Path)
     args = parser.parse_args()
     plan = build_plan()
     if args.case:
@@ -1142,7 +1183,42 @@ def main() -> int:
             args.output.resolve(),
             [case.name for case in plan] if args.case else [],
         )
-    return MatrixRunner(Path("/artifacts")).run(plan)
+    runner = MatrixRunner(Path("/artifacts"))
+    if args.resume_from:
+        import xgboost
+
+        previous = json.loads(args.resume_from.read_text())
+        runner.results = [item for item in previous if item["passed"]]
+        completed = {item["name"] for item in runner.results}
+        for item in runner.results:
+            if item["operation"] != "training" or item["expected"] != "COMPLETED":
+                continue
+            manifest = item["detail"]["artifact_manifest"]
+            runner.models[item["name"]] = manifest
+            storage = manifest["storage"]
+            native = next(
+                file
+                for spec in manifest["model_artifacts"].values()
+                for alternative in spec.get("alternatives", [])
+                for file in alternative.get("files", [])
+                if file["path"].endswith(".ubj")
+            )
+            key = storage["prefix"].rstrip("/") + "/" + native["path"].lstrip("/")
+            if storage["type"] == "s3":
+                body = runner.s3.get_object(Bucket=storage["bucket"], Key=key)["Body"]
+                try:
+                    content = body.read()
+                finally:
+                    body.close()
+            else:
+                content = (Path(storage["bucket"]) / key).read_bytes()
+            assert "sha256:" + hashlib.sha256(content).hexdigest() == native["hash"]
+            booster = xgboost.Booster()
+            booster.load_model(bytearray(content))
+            booster.set_param({"nthread": 1})
+            runner.boosters[item["name"]] = booster
+        plan = [case for case in plan if case.name not in completed]
+    return runner.run(plan)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "tributo", extras = ["model-export"], git = "https://github.com/Chang-Tong/Tributo.git?rev=440da0422a3a9c5b041b6ecdbb2e40c00bf43cd90" }]
+overrides = [{ name = "tributo", extras = ["model-export"], git = "https://github.com/Chang-Tong/Tributo.git?rev=1eaae848ef7f6acbd600c87771f91f9291f00b3e" }]
 
 [[package]]
 name = "aiobotocore"
@@ -1501,13 +1501,17 @@ tune = [
 
 [[package]]
 name = "ray-clickhouse"
-version = "0.1.0"
-source = { git = "https://github.com/Chang-Tong/ray-clickhouse-upstream.git?rev=c1627101736463ccc94c99c6793f91360173e6ac#c1627101736463ccc94c99c6793f91360173e6ac" }
+version = "1.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "clickhouse-connect", extra = ["arrow"] },
     { name = "pyarrow" },
     { name = "ray", extra = ["data"] },
     { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/16/1e/8ee051fa24fa9ff0bee586ef405d504e2961babd15475105ce6a3b80cb7f/ray_clickhouse-1.0.tar.gz", hash = "sha256:0db8eb46c64e6d565c6853fbe61c911e7c89bd8fb0997f8e5088c4b3da793d8e", size = 237244, upload-time = "2026-10-05T11:28:46.055Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/68/2b2d0cc1027f2f909201a8f96198477ee6c3d5a59611f7d5cf2a27b6ac1d/ray_clickhouse-1.0-py3-none-any.whl", hash = "sha256:5ac258dd425ea9fa879b3429c57755f7948c1541bda5fc6f57f2c9605e3c63cb", size = 45163, upload-time = "2026-10-05T11:28:44.571Z" },
 ]
 
 [[package]]
@@ -1768,7 +1772,7 @@ wheels = [
 [[package]]
 name = "tributo"
 version = "1.0.0"
-source = { git = "https://github.com/Chang-Tong/Tributo.git?rev=440da0422a3a9c5b041b6ecdbb2e40c00bf43cd90#440da0422a3a9c5b041b6ecdbb2e40c00bf43cd9" }
+source = { git = "https://github.com/Chang-Tong/Tributo.git?rev=1eaae848ef7f6acbd600c87771f91f9291f00b3e#1eaae848ef7f6acbd600c87771f91f9291f00b3e" }
 dependencies = [
     { name = "aiohttp" },
     { name = "click" },
@@ -1803,27 +1807,59 @@ dependencies = [
 
 [[package]]
 name = "tributo-broker-redis"
-version = "0.1.0"
-source = { git = "https://github.com/Chang-Tong/tributo-broker-redis.git?rev=e2973b2a7409fc72807bbec23388d13966c5c319#e2973b2a7409fc72807bbec23388d13966c5c319" }
+version = "0.3.0"
+source = { path = "vendor/wheels/tributo_broker_redis-0.3.0-py3-none-any.whl" }
 dependencies = [
     { name = "packaging" },
     { name = "pydantic" },
     { name = "redis" },
     { name = "tributo", extra = ["model-export"] },
 ]
+wheels = [
+    { filename = "tributo_broker_redis-0.3.0-py3-none-any.whl", hash = "sha256:2953d77288c1a1ee09f43d16368ff34a154fb9880a6576fcee05aa07f8839148" },
+]
 
-[[package]]
-name = "tributo-knova"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
+[package.optional-dependencies]
+aimodel-v2 = [
     { name = "boto3" },
     { name = "clickhouse-connect" },
-    { name = "pydantic" },
     { name = "ray-clickhouse" },
     { name = "tributo", extra = ["model-export"] },
     { name = "tributo-algorithms-boosting" },
-    { name = "tributo-broker-redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'aimodel-v2'", specifier = ">=1.42.91" },
+    { name = "clickhouse-connect", marker = "extra == 'aimodel-v2'", specifier = ">=1.5,<1.6" },
+    { name = "jsonschema", marker = "extra == 'contracts'", specifier = ">=4.23,<5" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.23,<5" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14" },
+    { name = "packaging", specifier = ">=24.0" },
+    { name = "pydantic", specifier = ">=2.0,<3.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3" },
+    { name = "ray-clickhouse", marker = "extra == 'aimodel-v2'", specifier = ">=1.0,<2" },
+    { name = "redis", specifier = ">=6.0,<9.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<1.0" },
+    { name = "tributo", specifier = ">=1.0,<2.0" },
+    { name = "tributo", extras = ["model-export"], marker = "extra == 'aimodel-v2'", specifier = ">=1.0,<2.0" },
+    { name = "tributo", extras = ["model-export"], marker = "extra == 'xgboost'", specifier = ">=1.0,<2.0" },
+    { name = "tributo-algorithms-boosting", marker = "extra == 'aimodel-v2'", specifier = ">=0.1,<1" },
+    { name = "tributo-algorithms-boosting", marker = "extra == 'xgboost'", specifier = ">=0.1,<1" },
+    { name = "types-jsonschema", marker = "extra == 'dev'", specifier = ">=4.23" },
+]
+provides-extras = ["aimodel-v2", "contracts", "dev", "xgboost"]
+
+[[package]]
+name = "tributo-knova"
+version = "0.3.0"
+source = { editable = "." }
+dependencies = [
+    { name = "ray-clickhouse" },
+    { name = "tributo", extra = ["model-export"] },
+    { name = "tributo-algorithms-boosting" },
+    { name = "tributo-broker-redis", extra = ["aimodel-v2"] },
 ]
 
 [package.optional-dependencies]
@@ -1834,15 +1870,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", specifier = ">=1.42.91" },
-    { name = "clickhouse-connect", specifier = ">=1.5,<1.6" },
-    { name = "pydantic", specifier = ">=2.0,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ray-clickhouse", git = "https://github.com/Chang-Tong/ray-clickhouse-upstream.git?rev=c1627101736463ccc94c99c6793f91360173e6ac" },
+    { name = "ray-clickhouse", specifier = "==1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<1.0" },
-    { name = "tributo", git = "https://github.com/Chang-Tong/Tributo.git?rev=440da0422a3a9c5b041b6ecdbb2e40c00bf43cd90" },
+    { name = "tributo", git = "https://github.com/Chang-Tong/Tributo.git?rev=1eaae848ef7f6acbd600c87771f91f9291f00b3e" },
     { name = "tributo-algorithms-boosting", git = "https://github.com/Chang-Tong/tributo-algorithms.git?subdirectory=packages%2Fboosting&rev=6f39378d4d850cfd41e9510abc313efc6d4f209f" },
-    { name = "tributo-broker-redis", git = "https://github.com/Chang-Tong/tributo-broker-redis.git?rev=e2973b2a7409fc72807bbec23388d13966c5c319" },
+    { name = "tributo-broker-redis", extras = ["aimodel-v2"], path = "vendor/wheels/tributo_broker_redis-0.3.0-py3-none-any.whl" },
 ]
 provides-extras = ["dev"]
 

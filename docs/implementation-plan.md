@@ -1,5 +1,18 @@
 # tributo-knova implementation plan
 
+Current 0.3 baseline: Core `1eaae848ef7f6acbd600c87771f91f9291f00b3e`,
+Broker 0.3, connector 1.0. Retired trainer/config APIs are rejected. The former
+eight generic/current-Core failures are resolved; both protocols were tested
+on the same Core. See the [current acceptance](https://github.com/Chang-Tong/tributo-broker-redis/blob/a4ccddda20ec942c3e62276db4b901c7bdad3d2b/docs/test-reports/2026-10-27-current-core-compatibility.md).
+Earlier pinned-assembly evidence below is historical.
+
+`tributo-knova` is a deployment/compatibility package, not a fork of Tributo.
+As of 2026-10-27, the protocol, validation, event reporter, training/inference
+mapping, and execution driver have moved to `tributo-broker-redis` 0.2 under
+`profiles.aimodel_v2`. This repository keeps forwarding aliases and the old CLI.
+The detailed milestones below describe the preserved behavior, not a second
+implementation in KnoVa. Protocol regressions now live in the Broker repository.
+
 `tributo-knova` is an integration package, not a fork of Tributo. It imports
 the public `tributo` and `tributo-broker-redis` packages and adds only the
 KnoVa-specific protocol and deployment behavior that those packages should not
@@ -10,8 +23,8 @@ own.
 | Capability | Owner |
 | --- | --- |
 | Algorithm execution, ingestion contracts, inference, Bundle and export | `tributo` |
-| Redis Streams, consumer groups, pending recovery, retry, cancellation and Ray Job admission | `tributo-broker-redis` |
-| KnoVa protocol v2 mapping, event compatibility, ClickHouse request/result policy and deployment defaults | `tributo-knova` |
+| Redis Streams, consumer groups, pending recovery, retry, cancellation, Ray Job admission, protocol v2 models/validation/mapping/events/driver | `tributo-broker-redis` |
+| Deployment assets, application defaults, legacy CLI/plugin/module compatibility | `tributo-knova` |
 | Distributed XGBoost split/train/evaluate/checkpoint/Bundle runtime, ONNX and UBJ exporters | official `tributo-algorithms-boosting` package |
 
 KnoVa code should call these public contracts directly. It should not copy the

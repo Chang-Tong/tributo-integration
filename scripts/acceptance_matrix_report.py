@@ -152,7 +152,10 @@ def summarize(root: Path) -> dict[str, Any]:
         ):
             missing_driver_evidence.append(case["name"])
         if case["expected"] == "FAILED" and not (
-            "ERROR tributo_knova." in log
+            (
+                "ERROR tributo_knova." in log
+                or "ERROR tributo_broker_redis.profiles.aimodel_v2." in log
+            )
             and "FAILED event published:" in log
             and len(terminals) == 1
             and terminals[0]["event_type"] == "FAILED"

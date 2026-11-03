@@ -1,5 +1,24 @@
 # Verification matrix
 
+Current 0.3 baseline: Core `1eaae848ef7f6acbd600c87771f91f9291f00b3e`,
+Broker 0.3, connector 1.0. Retired trainer/config APIs are rejected. The former
+eight generic/current-Core failures are resolved; both protocols were tested
+on the same Core. See the [current acceptance](https://github.com/Chang-Tong/tributo-broker-redis/blob/a4ccddda20ec942c3e62276db4b901c7bdad3d2b/docs/test-reports/2026-10-27-current-core-compatibility.md).
+Earlier pinned-assembly evidence below is historical.
+
+The implementation is now owned by `tributo-broker-redis.profiles.aimodel_v2`;
+its protocol/mapping/driver tests moved to the Broker repository. KnoVa retains
+compatibility, CLI, and deployment tests. Historical integration evidence below
+remains separate from the current migration evidence.
+
+On 2026-10-27, the final Broker 0.2 Wheel passed the pinned KnoVa assembly's
+real training, inference, and exact-SHAP smoke (3/3), through the thin KnoVa
+wrapper. The Broker-only current-Core assembly passed 54 business cases,
+11 failure/recovery cases, and 8 real Sentinel cases after fixes. KnoVa's
+132 tests passed. See the [complete local acceptance report](https://github.com/Chang-Tong/tributo-broker-redis/blob/a4ccddda20ec942c3e62276db4b901c7bdad3d2b/docs/test-reports/2026-10-27-aimodel-v2-acceptance.md)
+for exact dependencies, first-run failures, fixes, artifacts, and remaining
+generic-v1/current-Core release blockers.
+
 The repository keeps one implementation path: KnoVa protocol v2 is adapted to
 the public Tributo, Redis Broker, and official boosting contracts. Credentials
 are supplied only through the process environment.

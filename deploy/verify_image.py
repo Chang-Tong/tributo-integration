@@ -22,3 +22,9 @@ for package in (
     if not installed or installed != distributed:
         raise SystemExit(f"Ray/consumer source mismatch: {package}")
     print(f"Identical consumer/Ray sources: {package} ({len(installed)} files)")
+
+installed_core = sources(Path(sysconfig.get_paths()["purelib"]) / "tributo")
+distributed_core = sources(Path("/opt/tributo-runtime/core/tributo"))
+if not installed_core or installed_core != distributed_core:
+    raise SystemExit("Ray/consumer source mismatch: tributo")
+print(f"Identical consumer/Ray sources: tributo ({len(installed_core)} files)")

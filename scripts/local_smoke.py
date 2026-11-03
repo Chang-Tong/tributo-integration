@@ -19,7 +19,17 @@ from urllib.parse import urlsplit
 import clickhouse_connect
 import redis
 
-from tributo_knova.broker import KnovaBrokerPlugin
+
+def _create_runtime(config: dict[str, Any]) -> Any:
+    """Exercise either the standalone provider or the legacy deployment entry."""
+    if config.get("broker_id") == "tributo-redis":
+        from tributo_broker_redis.plugin import RedisBrokerPlugin
+
+        return RedisBrokerPlugin().create_runtime(config)
+    from tributo_knova.broker import KnovaBrokerPlugin
+
+    return KnovaBrokerPlugin().create_runtime(config)
+
 
 _TERMINAL_EVENTS = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
 
@@ -94,6 +104,7 @@ def _arguments() -> argparse.Namespace:
         help="verify pending recovery and cancellation after Consumer restart",
     )
     parser.add_argument("--timeout", type=float, default=180.0)
+    parser.add_argument("--provider", choices=("knova", "broker"), default="knova")
     return parser.parse_args()
 
 
@@ -117,7 +128,8 @@ def _runtime_config(args: argparse.Namespace, repository: Path) -> dict[str, Any
         dict.fromkeys((python_bin, *current_path.split(os.pathsep)))
     )
     return {
-        "broker_id": "tributo-knova",
+        "broker_id": "tributo-redis" if args.provider == "broker" else "tributo-knova",
+        "protocol": {"profile": "aimodel-v2", "protocol_version": "2.0"},
         "api_version": 1,
         "transport": {
             "mode": "standalone",
@@ -154,7 +166,11 @@ def _runtime_config(args: argparse.Namespace, repository: Path) -> dict[str, Any
             "ray_dashboard_url": args.ray_dashboard_url,
             "project_root": str(core),
             "extra_py_modules": [
-                str(repository / "src/tributo_knova"),
+                *(
+                    [str(repository / "src/tributo_knova")]
+                    if args.provider != "broker"
+                    else []
+                ),
                 str(broker / "src/tributo_broker_redis"),
                 str(algorithms / "packages/boosting/src/tributo_algorithms_boosting"),
             ],
@@ -581,7 +597,7 @@ def _exercise_recovery(
     client.set(f"{cancel_prefix}:{pending_id}", "1")
     time.sleep(1.1)
 
-    recovered_runtime = KnovaBrokerPlugin().create_runtime(runtime_config)
+    recovered_runtime = _create_runtime(runtime_config)
     try:
         recovered_runtime.start()
         if not recovered_runtime.run_once(timeout_ms=0):
@@ -617,7 +633,7 @@ def _exercise_recovery(
     finally:
         recovered_runtime.close()
 
-    restarted_runtime = KnovaBrokerPlugin().create_runtime(runtime_config)
+    restarted_runtime = _create_runtime(runtime_config)
     try:
         restarted_runtime.start()
         recovered = restarted_runtime.active_submissions.get(active_id)
@@ -693,7 +709,7 @@ def main() -> int:
         )
 
         runtime_config = _runtime_config(args, repository)
-        runtime = KnovaBrokerPlugin().create_runtime(runtime_config)
+        runtime = _create_runtime(runtime_config)
         runtime.start()
         training = _training_request(
             args,

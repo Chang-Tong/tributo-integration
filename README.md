@@ -3,11 +3,19 @@
 KnoVa integration package built on the public `tributo` and
 `tributo-broker-redis` packages.
 
-This repository starts as a thin integration layer. It should reuse the two
-upstream packages and the official algorithm packages directly, adding only
-KnoVa protocol mapping, application policy, and deployment assets.
+This repository is the deployment and compatibility layer. AI model protocol
+v2 parsing, validation, event reporting, request mapping, and Ray execution now
+belong to `tributo-broker-redis[aimodel-v2]` version 0.3. The `tributo_knova`
+protocol/training/inference/reporter modules are compatibility aliases, not
+independent implementations.
 
-The current implementation accepts the existing KnoVa protocol v2 training and
+`tributo-knova` CLI and plugin remain available for existing deployments. The
+wrapper selects the Broker's `aimodel-v2` profile and submits the Broker-owned
+driver. New deployments may use `tributo-broker-redis` directly with
+`broker_id=tributo-redis` and an explicit v2 profile. See the Broker's
+`docs/aimodel-v2.md` and `docs/config.aimodel-v2.example.json`.
+
+The Broker implementation accepts the existing KnoVa protocol v2 training and
 batch-inference envelopes and adapts them to the public Redis broker runtime.
 It provides distributed XGBoost training, content-addressed Tributo Bundles,
 Ray-native ClickHouse input, Bundle inference, ClickHouse result output, and
@@ -17,7 +25,7 @@ feature importance, and distributed feature correlation, plus KnoVa v2
 lifecycle events. Redis Streams consumption, consumer groups, pending recovery,
 cancellation, Ray Job admission, retries, and acknowledgements remain owned by
 `tributo-broker-redis`. The distributed XGBoost train/evaluate/checkpoint/Bundle
-data plane is owned by `tributo-algorithms-boosting`; KnoVa only maps the request,
+data plane is owned by `tributo-algorithms-boosting`; the Broker profile maps the request,
 invokes that public API, and projects its result into the KnoVa protocol.
 
 See [the implementation plan](docs/implementation-plan.md) for the completed
@@ -31,29 +39,34 @@ UBJ-only prediction, and compatible upstream release tags remain open.
 Training and inference use Tributo's official
 `ray_clickhouse.ray.clickhouse` ingestion Binding. Tributo owns the typed
 control-plane request, `ray-clickhouse` owns physical split discovery and
-bounded Arrow streaming, and Ray Data owns execution. KnoVa only maps protocol
+bounded Arrow streaming, and Ray Data owns execution. The Broker profile maps protocol
 fields to the public request and selects application-level batch/concurrency
 policy. Equality filters remain explicit Tributo transforms, so correctness
 does not depend on a KnoVa-specific SQL pushdown implementation.
 
-Inference output keeps KnoVa's result projection and TreeSHAP formatting in the
-application layer, then hands the transformed Ray Dataset to Tributo's
+Inference output keeps the v2 result projection and TreeSHAP formatting in the
+Broker profile, then hands the transformed Ray Dataset to Tributo's
 `WriteGateway` with the official `tributo.ray.clickhouse` append Binding.
-KnoVa no longer registers a parallel ingestion Binding or calls a ClickHouse
+The profile does not register a parallel ingestion Binding or call a ClickHouse
 writer directly. Input and output credentials are carried as environment
 references and never enter the public Core request or receipt.
 
 ## Development
 
-The local development configuration resolves both dependencies from sibling
-repositories during the smoke test. Normal installation uses immutable Git
-commits for Tributo, the Redis Broker, and the official boosting package until
-compatible releases are published:
+The smoke test can resolve sibling source checkouts. The locked provider is
+the bundled 0.3.0 Wheel; Core and connector now use the current verified baseline instead of their
+existing pins. Rebuild the provider Wheel from the Broker checkout before
+refreshing the local lock. The Docker build uses the bundled dependency Wheels:
 
 ```bash
 uv sync --frozen --extra dev
 uv run pytest
 ```
+
+Protocol, mapping, reporter, and execution-driver tests moved to the Broker's
+`tests/aimodel_v2`; this repository tests compatibility forwarding, CLI,
+deployment, and the bundled algorithm artifact. The deployment smoke scripts
+keep using the compatibility entrypoint, which forwards to Broker.
 
 ## Local end-to-end smoke test
 
@@ -112,3 +125,11 @@ See [deployment instructions](deploy/README.md) and
 [offline deployment](deploy/offline-deploy.md). Offline packages are created
 with `./scripts/package_image.sh`; the script records platform compatibility,
 generates a SHA-256 checksum, and validates the zstd archive before returning.
+
+## Current Core baseline (0.3)
+
+Core is pinned to `1eaae848ef7f6acbd600c87771f91f9291f00b3e`; the connector is
+ray-clickhouse 1.0, and Broker is the bundled 0.3.0 Wheel. The former Core and
+connector references are retired. Generic training now uses explicit public
+ingestion, worker-resource and algorithm-result contracts. Legacy in-Core
+trainer config is rejected. The deployment wrapper remains thin.

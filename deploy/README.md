@@ -222,3 +222,14 @@ Ray dashboard:
 tributo-knova validate --config /etc/tributo-knova/config.json
 tributo-knova health --config /etc/tributo-knova/config.json
 ```
+
+## Current-Core offline upgrade (0.3)
+
+Run `uv build --wheel` before building `Dockerfile.hotfix`. Its local build
+context now includes the newly built KnoVa 0.3 Wheel and every current vendor
+Wheel: Core `1eaae84`, Broker 0.3, ray-clickhouse 1.0 and the verified Boosting
+Wheel. Older minimal v2.5 hotfix contexts are historical artifacts.
+The upgrade removes stale project package metadata, replaces all five packages,
+and verifies that the installed Core plus the three extension packages match
+the copies distributed to Ray. Use the same resulting image for Consumer, head
+and workers. This is a build recipe; no production deployment is performed.

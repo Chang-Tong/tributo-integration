@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # trixie C/C++ runtime libraries required by the prebuilt Python wheels.
 FROM ${PYTHON_RUNTIME_IMAGE}
 
-ARG VERSION=0.1.0
+ARG VERSION=0.3.0
 LABEL org.opencontainers.image.title="tributo-knova" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/Chang-Tong/tributo-knova"

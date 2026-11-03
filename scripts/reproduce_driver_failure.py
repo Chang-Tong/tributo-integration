@@ -174,7 +174,9 @@ def run(mode):
             assert "Driver input loaded:" not in logs
             assert "Traceback (most recent call last)" not in logs
         else:
-            assert "INFO tributo_knova.execution_driver" in logs, logs
+            assert (
+                "INFO tributo_broker_redis.profiles.aimodel_v2.execution_driver" in logs
+            ), logs
             assert "Driver input loaded:" in logs
             assert "Traceback (most recent call last)" in logs
             assert "runtime_resources/py_modules_files/" in logs, logs
