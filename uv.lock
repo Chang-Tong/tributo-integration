@@ -1816,7 +1816,7 @@ dependencies = [
     { name = "tributo", extra = ["model-export"] },
 ]
 wheels = [
-    { filename = "tributo_broker_redis-0.3.0-py3-none-any.whl", hash = "sha256:2953d77288c1a1ee09f43d16368ff34a154fb9880a6576fcee05aa07f8839148" },
+    { filename = "tributo_broker_redis-0.3.0-py3-none-any.whl", hash = "sha256:a960610f756e5a4d22e3ed6287e9ae487e7d822d9eb1467fb191d90df5e26e5d" },
 ]
 
 [package.optional-dependencies]
@@ -1834,14 +1834,14 @@ requires-dist = [
     { name = "clickhouse-connect", marker = "extra == 'aimodel-v2'", specifier = ">=1.5,<1.6" },
     { name = "jsonschema", marker = "extra == 'contracts'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.23,<5" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = "==2.4.1" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "pydantic", specifier = ">=2.0,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3" },
     { name = "ray-clickhouse", marker = "extra == 'aimodel-v2'", specifier = ">=1.0,<2" },
     { name = "redis", specifier = ">=6.0,<9.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<1.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.17.3" },
     { name = "tributo", specifier = ">=1.0,<2.0" },
     { name = "tributo", extras = ["model-export"], marker = "extra == 'aimodel-v2'", specifier = ">=1.0,<2.0" },
     { name = "tributo", extras = ["model-export"], marker = "extra == 'xgboost'", specifier = ">=1.0,<2.0" },

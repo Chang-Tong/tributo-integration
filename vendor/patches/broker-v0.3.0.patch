@@ -95,7 +95,7 @@ index faabbac..9ded271 100644
 +locked specification, explicit gaps, reusable workflows and evidence format.
 +Passing a schema or a substituted executor test is not full runtime compatibility.
 diff --git a/pyproject.toml b/pyproject.toml
-index 87a0e64..777bcbd 100644
+index 87a0e64..665c8ce 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -1,6 +1,6 @@
@@ -106,7 +106,7 @@ index 87a0e64..777bcbd 100644
  description = "Redis Streams provider for Tributo Broker API v1"
  readme = "README.md"
  requires-python = ">=3.12,<3.14"
-@@ -20,10 +20,24 @@ dependencies = [
+@@ -20,11 +20,25 @@ dependencies = [
  ]
  
  [project.optional-dependencies]
@@ -124,14 +124,16 @@ index 87a0e64..777bcbd 100644
 +]
  dev = [
 -    "mypy>=1.0",
-+    "mypy>=1.14",
++    "mypy==2.4.1",
      "pytest>=8.0",
      "pytest-timeout>=2.3",
+-    "ruff>=0.6,<1.0",
 +    "jsonschema>=4.23,<5",
 +    "types-jsonschema>=4.23",
-     "ruff>=0.6,<1.0",
++    "ruff==0.17.3",
  ]
  
+ [project.entry-points."tributo.brokers"]
 @@ -32,6 +46,7 @@ tributo-redis = "tributo_broker_redis.plugin:RedisBrokerPlugin"
  
  [project.scripts]
@@ -140,9 +142,13 @@ index 87a0e64..777bcbd 100644
  
  [build-system]
  requires = ["hatchling"]
-@@ -52,7 +67,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
+@@ -51,8 +66,11 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
+ [tool.ruff.lint.per-file-ignores]
  "tests/**/*.py" = ["B011"]
  
++[tool.ruff.lint.isort]
++known-first-party = ["conftest", "tributo_broker_redis"]
++
  [tool.pytest.ini_options]
 -testpaths = ["tests/unit", "tests/integration"]
 +testpaths = ["tests/unit", "tests/contracts", "tests/aimodel_v2", "tests/integration"]
@@ -175,17 +181,19 @@ index 9b8b3c4..d475412 100644
 +        return RedisBrokerPlugin
 +    raise AttributeError(name)
 diff --git a/src/tributo_broker_redis/cancellation.py b/src/tributo_broker_redis/cancellation.py
-index 4a02c6b..9295448 100644
+index 4a02c6b..788e0ce 100644
 --- a/src/tributo_broker_redis/cancellation.py
 +++ b/src/tributo_broker_redis/cancellation.py
-@@ -5,6 +5,7 @@ from __future__ import annotations
+@@ -5,7 +5,8 @@ from __future__ import annotations
  import json
  import logging
  import threading
+-from collections.abc import Callable
 +import time
- from collections.abc import Callable
++from collections.abc import Callable, Mapping
  from dataclasses import dataclass
  from typing import Any
+ 
 @@ -27,6 +28,8 @@ class ActiveSubmission:
      run_id: str
      channel: ChannelConfig
@@ -195,7 +203,21 @@ index 4a02c6b..9295448 100644
  
  
  class ActiveSubmissionMap:
-@@ -64,9 +67,9 @@ def terminal_event_published(
+@@ -53,9 +56,13 @@ class ActiveSubmissionMap:
+             return self._items.get(operation_id)
+ 
+ 
++TerminalEventMatcher = Callable[[Mapping[str, Any], ActiveSubmission], bool]
++
++
+ def terminal_event_published(
+     redis_client: Any,
+     item: ActiveSubmission,
++    matcher: TerminalEventMatcher | None = None,
+ ) -> bool:
+     """Find a recent terminal event even if a recovery event followed it."""
+     xrevrange = getattr(redis_client, "xrevrange", None)
+@@ -64,9 +71,9 @@ def terminal_event_published(
      stream = item.channel.event_stream_key(item.operation_id)
      entries = xrevrange(stream, count=_TERMINAL_LOOKBACK)
      for _entry_id, fields in entries:
@@ -207,32 +229,41 @@ index 4a02c6b..9295448 100644
          if not isinstance(raw, str):
              continue
          try:
-@@ -80,6 +83,16 @@ def terminal_event_published(
-             and submission_id == item.submission.submission_id
-         ):
-             return True
-+        # KnoVa v2 uses an immutable job_id/execution_id and has no submission_id.
-+        # Keep the generic protocol's strict attempt matching above intact.
-+        if (
-+            event_type in _TERMINAL_EVENT_TYPES
-+            and submission_id is None
-+            and event.get("protocol_version") == "2.0"
-+            and item.channel.outer_identity_field in {"job_id", "execution_id"}
-+            and event.get(item.channel.outer_identity_field) == item.operation_id
-+        ):
+@@ -75,10 +82,11 @@ def terminal_event_published(
+             submission_id = event.get("submission_id")
+         except (json.JSONDecodeError, AttributeError):
+             continue
+-        if (
+-            event_type in _TERMINAL_EVENT_TYPES
+-            and submission_id == item.submission.submission_id
+-        ):
++        if event_type not in _TERMINAL_EVENT_TYPES:
++            continue
++        if submission_id == item.submission.submission_id:
 +            return True
++        if matcher is not None and matcher(event, item):
+             return True
      return False
  
- 
-@@ -109,6 +122,7 @@ class CancelWatcher:
+@@ -98,6 +106,7 @@ class CancelWatcher:
+         status_getter: Callable[..., str] = get_ray_job_status,
+         stopper: Callable[..., bool] = stop_ray_job,
+         reporter_factory: Callable[..., RedisEventReporter] = RedisEventReporter,
++        terminal_event_matcher: TerminalEventMatcher | None = None,
+     ) -> None:
+         self._redis = redis_client
+         self._active = active
+@@ -108,7 +117,9 @@ class CancelWatcher:
+         self._status_getter = status_getter
          self._stopper = stopper
          self._reporter_factory = reporter_factory
++        self._terminal_event_matcher = terminal_event_matcher
          self._stop_requested: set[str] = set()
 +        self._timeout_requested: set[str] = set()
          self._closed = threading.Event()
          self._thread: threading.Thread | None = None
  
-@@ -130,42 +144,71 @@ class CancelWatcher:
+@@ -130,47 +141,76 @@ class CancelWatcher:
          for item in self._active.snapshot():
              try:
                  if self._terminal_event_published(item):
@@ -310,7 +341,13 @@ index 4a02c6b..9295448 100644
                      exc_info=True,
                  )
  
-@@ -182,6 +225,15 @@ class CancelWatcher:
+     def _terminal_event_published(self, item: ActiveSubmission) -> bool:
+-        return terminal_event_published(self._redis, item)
++        return terminal_event_published(self._redis, item, self._terminal_event_matcher)
+ 
+     def _report_cancelled(self, item: ActiveSubmission) -> None:
+         reporter = self._reporter(item)
+@@ -182,6 +222,15 @@ class CancelWatcher:
  
      def _report_failed(self, item: ActiveSubmission, code: str) -> None:
          reporter = self._reporter(item)
@@ -326,7 +363,7 @@ index 4a02c6b..9295448 100644
          reporter.publish(
              "FAILED",
              {
-@@ -191,6 +243,14 @@ class CancelWatcher:
+@@ -191,6 +240,14 @@ class CancelWatcher:
              },
              phase="FAILED",
          )
@@ -341,7 +378,7 @@ index 4a02c6b..9295448 100644
  
      def _reporter(self, item: ActiveSubmission) -> RedisEventReporter:
          reporter = self._reporter_factory(
-@@ -206,6 +266,7 @@ class CancelWatcher:
+@@ -206,6 +263,7 @@ class CancelWatcher:
              outer_identity_field=item.channel.outer_identity_field,
              max_event_bytes=self._max_event_bytes,
              max_stream_length=self._max_stream_length,
@@ -349,6 +386,13 @@ index 4a02c6b..9295448 100644
          )
          return reporter
  
+@@ -219,5 +277,6 @@ __all__ = [
+     "ActiveSubmission",
+     "ActiveSubmissionMap",
+     "CancelWatcher",
++    "TerminalEventMatcher",
+     "terminal_event_published",
+ ]
 diff --git a/src/tributo_broker_redis/cli.py b/src/tributo_broker_redis/cli.py
 index 8f78622..b270ced 100644
 --- a/src/tributo_broker_redis/cli.py
@@ -6456,18 +6500,20 @@ index 0000000..457db22
 +"""AI model training/inference protocol v2, independent of KnoVa deployment."""
 diff --git a/src/tributo_broker_redis/profiles/aimodel_v2/broker.py b/src/tributo_broker_redis/profiles/aimodel_v2/broker.py
 new file mode 100644
-index 0000000..8f1538b
+index 0000000..3e32538
 --- /dev/null
 +++ b/src/tributo_broker_redis/profiles/aimodel_v2/broker.py
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,119 @@
 +"""Thin KnoVa protocol adapter for the public Redis broker runtime."""
 +
 +from __future__ import annotations
 +
 +import hashlib
 +import json
++from collections.abc import Mapping
 +from typing import Any
 +
++from tributo_broker_redis.cancellation import ActiveSubmission
 +from tributo_broker_redis.config import OperationType, RedisBrokerConfig
 +from tributo_broker_redis.operations import MappingFailure, PreparedOperation
 +from tributo_broker_redis.profiles.aimodel_v2.protocol import parse_request
@@ -6545,6 +6591,19 @@ index 0000000..8f1538b
 +    return float(value)
 +
 +
++def _matches_knova_terminal_event(
++    event: Mapping[str, Any], submission: ActiveSubmission
++) -> bool:
++    """Match v2's immutable public identity without a Ray submission ID."""
++    identity_field = submission.channel.outer_identity_field
++    return (
++        event.get("protocol_version") == "2.0"
++        and event.get("submission_id") is None
++        and identity_field in {"job_id", "execution_id"}
++        and event.get(identity_field) == submission.operation_id
++    )
++
++
 +def create_runtime(config: RedisBrokerConfig) -> RedisBrokerRuntime:
 +    """Build a v2 runtime without importing the deployment integration."""
 +    return RedisBrokerRuntime(
@@ -6554,6 +6613,7 @@ index 0000000..8f1538b
 +        driver_entrypoint=DRIVER_ENTRYPOINT,
 +        recovery_driver_entrypoints=("python -m tributo_knova.execution_driver",),
 +        reporter_factory=KnovaRedisEventReporter,
++        terminal_event_matcher=_matches_knova_terminal_event,
 +    )
 +
 +
@@ -12461,7 +12521,7 @@ index d8c626a..82acaa0 100644
              },
              phase=phase,
 diff --git a/src/tributo_broker_redis/runtime.py b/src/tributo_broker_redis/runtime.py
-index ded86ba..1c05eb9 100644
+index ded86ba..d421f54 100644
 --- a/src/tributo_broker_redis/runtime.py
 +++ b/src/tributo_broker_redis/runtime.py
 @@ -4,6 +4,7 @@ from __future__ import annotations
@@ -12472,7 +12532,15 @@ index ded86ba..1c05eb9 100644
  from collections.abc import Callable, Iterable, Mapping
  from pathlib import Path
  from typing import Any, cast
-@@ -31,6 +32,7 @@ from tributo_broker_redis.config import (
+@@ -22,6 +23,7 @@ from tributo_broker_redis.cancellation import (
+     ActiveSubmission,
+     ActiveSubmissionMap,
+     CancelWatcher,
++    TerminalEventMatcher,
+     terminal_event_published,
+ )
+ from tributo_broker_redis.config import (
+@@ -31,6 +33,7 @@ from tributo_broker_redis.config import (
      normalize_config,
  )
  from tributo_broker_redis.consumer import RedisTaskConsumer
@@ -12480,7 +12548,7 @@ index ded86ba..1c05eb9 100644
  from tributo_broker_redis.operations import (
      MappingFailure,
      PreparedOperation,
-@@ -47,9 +49,19 @@ from tributo_broker_redis.reporter import RedisEventReporter
+@@ -47,9 +50,19 @@ from tributo_broker_redis.reporter import RedisEventReporter
  
  logger = logging.getLogger(__name__)
  _DRIVER_ENV = "TRIBUTO_REDIS_DRIVER_INPUT_B64"
@@ -12502,15 +12570,18 @@ index ded86ba..1c05eb9 100644
  
  
  def _list_ray_jobs(dashboard_url: str) -> Iterable[Any]:
-@@ -88,6 +100,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -88,8 +101,10 @@ class RedisBrokerRuntime(BrokerRuntime):
              prepare_operation
          ),
          driver_entrypoint: str = _DEFAULT_DRIVER_ENTRYPOINT,
 +        recovery_driver_entrypoints: tuple[str, ...] = (),
          reporter_factory: Callable[..., RedisEventReporter] = RedisEventReporter,
          job_lister: Callable[[str], Iterable[Any]] = _list_ray_jobs,
++        terminal_event_matcher: TerminalEventMatcher | None = None,
      ) -> None:
-@@ -98,6 +111,10 @@ class RedisBrokerRuntime(BrokerRuntime):
+         if not driver_entrypoint.strip():
+             raise ValueError("driver_entrypoint must not be empty")
+@@ -98,8 +113,13 @@ class RedisBrokerRuntime(BrokerRuntime):
          self._request_parser = request_parser
          self._operation_preparer = operation_preparer
          self._driver_entrypoint = driver_entrypoint
@@ -12520,16 +12591,22 @@ index ded86ba..1c05eb9 100644
 +        }
          self._reporter_factory = reporter_factory
          self._job_lister = job_lister
++        self._terminal_event_matcher = terminal_event_matcher
          validate_execution_environment(config)
-@@ -122,6 +139,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+         self._redis = redis_client or create_redis_client(config)
+         self._consumers: dict[OperationType, RedisTaskConsumer] = {
+@@ -120,8 +140,10 @@ class RedisBrokerRuntime(BrokerRuntime):
+             max_event_bytes=config.transport.max_event_bytes,
+             max_stream_length=config.transport.max_stream_length,
              reporter_factory=reporter_factory,
++            terminal_event_matcher=terminal_event_matcher,
          )
          self._next_channel = 0
 +        self._next_pending_recovery = 0.0
          self._closed = False
          self._started = False
          if start_cancel_watcher:
-@@ -139,11 +157,33 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -139,11 +161,33 @@ class RedisBrokerRuntime(BrokerRuntime):
      def start(self) -> None:
          if self._started:
              return
@@ -12565,7 +12642,7 @@ index ded86ba..1c05eb9 100644
  
      def _recover_active_submissions(self) -> None:
          """Rebuild cancellation/watchdog state from credential-free Ray metadata."""
-@@ -151,7 +191,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -151,7 +195,7 @@ class RedisBrokerRuntime(BrokerRuntime):
          for job in jobs:
              raw_status = getattr(job, "status", "")
              status = str(getattr(raw_status, "value", raw_status)).upper()
@@ -12574,7 +12651,7 @@ index ded86ba..1c05eb9 100644
                  continue
              metadata = getattr(job, "metadata", None)
              if not isinstance(metadata, Mapping):
-@@ -178,7 +218,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -178,7 +222,7 @@ class RedisBrokerRuntime(BrokerRuntime):
                  not all(isinstance(value, str) and value for value in required)
                  or operation_type not in {"training", "batch_inference"}
                  or execution_profile not in {"single_worker", "distributed"}
@@ -12583,7 +12660,7 @@ index ded86ba..1c05eb9 100644
              ):
                  continue
              channel = self.config.channels.for_operation(
-@@ -207,6 +247,12 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -207,6 +251,12 @@ class RedisBrokerRuntime(BrokerRuntime):
                      execution_profile=cast(ExecutionProfile, execution_profile),
                      run_id=cast(str, run_id),
                      channel=channel,
@@ -12596,13 +12673,13 @@ index ded86ba..1c05eb9 100644
                      submission=RayJobSubmission(
                          run_id=cast(str, run_id),
                          attempt_id=cast(str, attempt_id),
-@@ -216,6 +262,21 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -216,6 +266,21 @@ class RedisBrokerRuntime(BrokerRuntime):
                      ),
                  )
              )
 +            recovered = self.active_submissions.get(cast(str, operation_id))
 +            if recovered is not None and terminal_event_published(
-+                self._redis, recovered
++                self._redis, recovered, self._terminal_event_matcher
 +            ):
 +                self.active_submissions.remove(recovered.operation_id)
 +                continue
@@ -12618,10 +12695,14 @@ index ded86ba..1c05eb9 100644
  
      def _resume_existing_submission(
          self,
-@@ -246,9 +307,23 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -245,10 +310,26 @@ class RedisBrokerRuntime(BrokerRuntime):
+                     ),
                  ),
              )
-         if terminal_event_published(self._redis, existing):
+-        if terminal_event_published(self._redis, existing):
++        if terminal_event_published(
++            self._redis, existing, self._terminal_event_matcher
++        ):
 +            logger.info(
 +                "Recovered operation is already terminal: operation_id=%s "
 +                "submission_id=%s ray_job_id=%s",
@@ -12642,7 +12723,7 @@ index ded86ba..1c05eb9 100644
              self._reporter(
                  operation_id=request.operation_id,
                  operation_type=operation_type,
-@@ -256,6 +331,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -256,6 +337,7 @@ class RedisBrokerRuntime(BrokerRuntime):
                  run_id=run_id,
                  attempt_id=request.attempt_id,
                  submission=existing.submission,
@@ -12650,23 +12731,23 @@ index ded86ba..1c05eb9 100644
              ).publish(
                  "ACCEPTED",
                  {
-@@ -289,6 +365,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -289,6 +371,7 @@ class RedisBrokerRuntime(BrokerRuntime):
          run_id: str,
          attempt_id: str,
          submission: RayJobSubmission | None = None,
-+        received_at_ms: int | str | None = None,
++        received_at_ms: int | None = None,
      ) -> RedisEventReporter:
          channel = self.config.channels.for_operation(operation_type)
          return self._reporter_factory(
-@@ -304,6 +381,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -304,6 +387,7 @@ class RedisBrokerRuntime(BrokerRuntime):
              outer_identity_field=channel.outer_identity_field,
              max_event_bytes=self.config.transport.max_event_bytes,
              max_stream_length=self.config.transport.max_stream_length,
-+            received_at_ms=int(received_at_ms) if received_at_ms is not None else None,
++            received_at_ms=received_at_ms,
          )
  
      def _invalid(
-@@ -320,6 +398,15 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -320,6 +404,15 @@ class RedisBrokerRuntime(BrokerRuntime):
          operation_id = message.metadata.get("outer_operation_id") or (
              f"invalid-{message.delivery_token}"
          )
@@ -12682,15 +12763,17 @@ index ded86ba..1c05eb9 100644
          try:
              self._reporter(
                  operation_id=operation_id,
-@@ -327,6 +414,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -327,6 +420,9 @@ class RedisBrokerRuntime(BrokerRuntime):
                  execution_profile=execution_profile,
                  run_id=run_id or operation_id,
                  attempt_id=attempt_id,
-+                received_at_ms=message.metadata.get("received_at_ms"),
++                received_at_ms=_metadata_milliseconds(
++                    message.metadata, "received_at_ms"
++                ),
              ).publish(
                  "FAILED",
                  {
-@@ -351,6 +439,12 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -351,6 +447,12 @@ class RedisBrokerRuntime(BrokerRuntime):
      def handle(self, message: Message) -> TaskOutcome:
          operation_type = cast(OperationType, message.metadata["operation_type"])
          outer_operation_id = message.metadata.get("outer_operation_id", "")
@@ -12703,7 +12786,7 @@ index ded86ba..1c05eb9 100644
          if not outer_operation_id:
              return self._invalid(
                  message,
-@@ -358,6 +452,42 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -358,6 +460,44 @@ class RedisBrokerRuntime(BrokerRuntime):
                  code="INVALID_OPERATION_ID",
                  sanitized_message="outer operation_id is required",
              )
@@ -12720,7 +12803,9 @@ index ded86ba..1c05eb9 100644
 +                        execution_profile="single_worker",
 +                        run_id=outer_operation_id,
 +                        attempt_id="attempt-1",
-+                        received_at_ms=message.metadata.get("received_at_ms"),
++                        received_at_ms=_metadata_milliseconds(
++                            message.metadata, "received_at_ms"
++                        ),
 +                    ).publish(
 +                        "CANCELLED",
 +                        {"reason": "cancelled before admission"},
@@ -12746,11 +12831,11 @@ index ded86ba..1c05eb9 100644
          if message.metadata.get("envelope_error"):
              return self._invalid(
                  message,
-@@ -425,9 +555,16 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -425,9 +565,16 @@ class RedisBrokerRuntime(BrokerRuntime):
              execution_profile=request.execution_profile,
              run_id=run_id,
              attempt_id=request.attempt_id,
-+            received_at_ms=message.metadata.get("received_at_ms"),
++            received_at_ms=_metadata_milliseconds(message.metadata, "received_at_ms"),
          )
          try:
              if bool(self._redis.exists(channel.cancel_key(request.operation_id))):
@@ -12763,7 +12848,7 @@ index ded86ba..1c05eb9 100644
                  reporter.publish(
                      "CANCELLED",
                      {"reason": "cancelled before admission"},
-@@ -435,6 +572,13 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -435,6 +582,13 @@ class RedisBrokerRuntime(BrokerRuntime):
                  )
                  return TaskOutcome(TaskDisposition.ACK)
          except Exception:
@@ -12777,7 +12862,7 @@ index ded86ba..1c05eb9 100644
              return TaskOutcome(
                  TaskDisposition.RETRY,
                  BrokerError(
-@@ -444,6 +588,14 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -444,6 +598,14 @@ class RedisBrokerRuntime(BrokerRuntime):
              )
  
          namespace = f"redis-{operation_type.replace('_', '-')}"
@@ -12792,7 +12877,7 @@ index ded86ba..1c05eb9 100644
          driver_input = DriverInput(
              operation_id=request.operation_id,
              operation_type=operation_type,
-@@ -457,11 +609,25 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -457,11 +619,25 @@ class RedisBrokerRuntime(BrokerRuntime):
              outer_identity_field=channel.outer_identity_field,
              max_event_bytes=self.config.transport.max_event_bytes,
              max_stream_length=self.config.transport.max_stream_length,
@@ -12819,7 +12904,7 @@ index ded86ba..1c05eb9 100644
              return self._invalid(
                  message,
                  operation_type=operation_type,
-@@ -470,37 +636,64 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -470,37 +646,64 @@ class RedisBrokerRuntime(BrokerRuntime):
              )
  
          env_vars = dict(self.config.execution.env_vars)
@@ -12914,7 +12999,7 @@ index ded86ba..1c05eb9 100644
              )
              active = ActiveSubmission(
                  operation_id=request.operation_id,
-@@ -509,6 +702,8 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -509,6 +712,8 @@ class RedisBrokerRuntime(BrokerRuntime):
                  run_id=run_id,
                  channel=channel,
                  submission=submission,
@@ -12923,7 +13008,7 @@ index ded86ba..1c05eb9 100644
              )
              self.active_submissions.put(active)
              self._reporter(
-@@ -518,6 +713,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -518,6 +723,7 @@ class RedisBrokerRuntime(BrokerRuntime):
                  run_id=run_id,
                  attempt_id=request.attempt_id,
                  submission=submission,
@@ -12931,7 +13016,7 @@ index ded86ba..1c05eb9 100644
              ).publish(
                  "ACCEPTED",
                  {
-@@ -526,10 +722,20 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -526,10 +732,20 @@ class RedisBrokerRuntime(BrokerRuntime):
                  },
                  phase="ADMITTED",
              )
@@ -12953,7 +13038,7 @@ index ded86ba..1c05eb9 100644
                  exc_info=True,
              )
              return TaskOutcome(
-@@ -544,6 +750,15 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -544,6 +760,15 @@ class RedisBrokerRuntime(BrokerRuntime):
      def _apply_outcome(
          self, consumer: RedisTaskConsumer, message: Message, outcome: TaskOutcome
      ) -> None:
@@ -12969,7 +13054,7 @@ index ded86ba..1c05eb9 100644
          if outcome.disposition == TaskDisposition.ACK:
              consumer.ack(message)
          elif outcome.disposition == TaskDisposition.RETRY:
-@@ -552,6 +767,7 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -552,6 +777,7 @@ class RedisBrokerRuntime(BrokerRuntime):
              consumer.reject(message, outcome.error)
  
      def run_once(self, timeout_ms: int | None = None) -> bool:
@@ -12977,7 +13062,7 @@ index ded86ba..1c05eb9 100644
          operations: tuple[OperationType, ...] = ("training", "batch_inference")
          per_channel_timeout = (
              self.config.transport.block_ms
-@@ -580,14 +796,23 @@ class RedisBrokerRuntime(BrokerRuntime):
+@@ -580,14 +806,23 @@ class RedisBrokerRuntime(BrokerRuntime):
          if self._closed:
              return
          self._closed = True

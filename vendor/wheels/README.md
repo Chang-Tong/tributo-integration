@@ -10,12 +10,16 @@ third-party dependencies still come from the configured index.
 | `ray_clickhouse-1.0-py3-none-any.whl` | PyPI ray-clickhouse 1.0, unmodified distribution | `5ac258dd425ea9fa879b3429c57755f7948c1541bda5fc6f57f2c9605e3c63cb` |
 | `tributo-1.0.0-py3-none-any.whl` | Chang-Tong/Tributo@1eaae848ef7f6acbd600c87771f91f9291f00b3e | `9493ecc3b791c184969e30b99ab367f27143c4a1e7703eb385c634088b4f9ce9` |
 | `tributo_algorithms_boosting-0.1.0-py3-none-any.whl` | Chang-Tong/tributo-algorithms@6f39378d4d850cfd41e9510abc313efc6d4f209f + boosting-v2.7.patch + boosting-v2.8-onnx-schema.patch | `c8bbed6fd0c9f828b37de498113f578f93c4ccb2ba5811ff80ee8f4424d4e922` |
-| `tributo_broker_redis-0.3.0-py3-none-any.whl` | Chang-Tong/tributo-broker-redis@e2973b2a7409fc72807bbec23388d13966c5c319 + broker-v0.3.0.patch | `2953d77288c1a1ee09f43d16368ff34a154fb9880a6576fcee05aa07f8839148` |
+| `tributo_broker_redis-0.3.0-py3-none-any.whl` | Chang-Tong/tributo-broker-redis@e2973b2a7409fc72807bbec23388d13966c5c319 + broker-v0.3.0.patch | `a960610f756e5a4d22e3ed6287e9ae487e7d822d9eb1467fb191d90df5e26e5d` |
 
 The complete [broker-v0.3.0.patch](../patches/broker-v0.3.0.patch) applies to a
 clean e2973b2 archive and includes current-Core generic training and the V2
-ownership migration, portable protocol contracts and admission fixes. Build with `uv build --wheel --offline`; compare its bytes
-and all package Python sources to the bundled Wheel. Refresh the bundled file,
+ownership migration, portable protocol contracts and admission fixes. It also
+retains the master branch's opt-in terminal matcher and moves the v2 identity
+rule into the Broker-owned profile. Its package sources match Broker commit
+`7f22aadf85ee219c493b3c42a5caa9834da5f45d`.
+Build with `uv build --wheel --offline`; compare its bytes and all package Python
+sources to the bundled Wheel. Refresh the bundled file,
 this table, and `uv lock --refresh-package tributo-broker-redis` together.
 
 The Boosting Wheel retains its documented local patches. Its Git reference alone
