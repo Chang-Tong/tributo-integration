@@ -1,6 +1,6 @@
-# tributo-knova
+# tributo-integration
 
-KnoVa integration package built on the public `tributo` and
+Deployment and integration assets built on the public `tributo` and
 `tributo-broker-redis` packages.
 
 This repository is the deployment and compatibility layer. AI model protocol

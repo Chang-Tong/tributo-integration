@@ -34,7 +34,7 @@ FROM ${PYTHON_RUNTIME_IMAGE}
 ARG VERSION=0.3.0
 LABEL org.opencontainers.image.title="tributo-knova" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.source="https://github.com/Chang-Tong/tributo-knova"
+      org.opencontainers.image.source="https://github.com/Chang-Tong/tributo-integration"
 
 COPY --from=builder /opt/tributo-knova /opt/tributo-knova
 ENV PATH="/opt/tributo-knova/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
